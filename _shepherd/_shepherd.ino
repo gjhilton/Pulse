@@ -27,13 +27,16 @@ const int CLICKER_PIN = 13;
 // CONSTANT CONFIGURATION
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
+// #define USE_HEARTBEAT;
+
 const bool USE_RADIO = true ;
 const long BAUD_RATE = 115200;
 
 const int STARTUP_DELAY_MILLIS = 1000;
 const int PANIC_HOLD_DURATION = 5000;
-const int BREATH_DURATION = 4000;
-const int LOOP_DELAY = 1;
+const int LOOP_DELAY = 5;
+
+const int NUM_CUE_REPEATS = 3; // now many times to send each scene change
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // STATE VARIABLES
@@ -46,6 +49,7 @@ bool testPanic = false;
 unsigned long panicButtonPressBeginTime = 0;
 
 unsigned long lastBreathTime = 0;
+unsigned long lastHeartbeatTime = 0;
 
 Adafruit_7segment readout = Adafruit_7segment();
 SmoothInput potentiometer = SmoothInput(POTENTIOMETER_PIN, sendParameter);
@@ -64,15 +68,15 @@ DebouncedButton resend = DebouncedButton(RESEND_BUTTON_PIN, resendCue);
 void sceneTest(int _) {};
 void sceneWhiteFlashes(int _) {};
 void sceneWhiteBreath(int _) {};
+void sceneChase(int _) {};
 void sceneColour(int _) {};
 void sceneMagnetometer(int _) {};
-void sceneFinale(int _) {};
 
 // the master listing of what happens when
-#include "/path/to/shared/Scene.h"
-#include "/path/to/shared/ShowPlot.h"
+#include "/path/to/DerwentPulse/shared/Scene.h"
+#include "/path/to/DerwentPulse/shared/ShowPlot.h"
 // the shared serial commands protocol
-#include "/path/to/shared/SerialProtocol.h"
+#include "/path/to/DerwentPulse/shared/SerialProtocol.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // ARDUINO LIFECYCLE
@@ -89,11 +93,18 @@ void setup() {
 }
 
 void loop() {
+  // sensors
   potentiometer.service();
   clicker.service();
-  resend.service();
+  resend.service();// FIXME: on first call, this will resend the first scene. This is actually beneficial, but is still a side effect.
   servicePanicButton();
-  serviceBreath();
+  // timers
+  unsigned long now = millis();
+  serviceBreath(now);
+  #ifdef USE_HEARTBEAT
+  serviceHeartbeat(now);
+  #endif
+  // and wait
   delay(LOOP_DELAY);
 }
 
@@ -203,7 +214,7 @@ void nextCue() {
     currentSceneNum++;
     currentCueNum = 0;
   }
-  // if we've wlked off the end, loop back to the beginning
+  // if we've walked off the end, loop back to the beginning
   if (currentSceneNum >= NUM_SCENES_IN_SHOW_PLOT) {
     currentSceneNum = 0;
     currentCueNum = 0;
@@ -220,13 +231,26 @@ void resendCue() {
 // IMPLEMENTATION: breath
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-void serviceBreath() {
-  unsigned long now = millis();
+void serviceBreath(unsigned long now) {
   if (now > (lastBreathTime + BREATH_DURATION)) {
-    sendBreath(BREATH_DURATION);
+    sendBreath();
     lastBreathTime = now;
   }
 }
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+// IMPLEMENTATION: heartbeat
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+#ifdef USE_HEARTBEAT
+void serviceHeartbeat(unsigned long now) {
+  if (now > (lastHeartbeatTime + HEARTBEAT_DURATION)) {
+    sendHeartbeat();
+    lastHeartbeatTime = now;
+  }
+}
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // IMPLEMENTATION: communication
@@ -243,15 +267,21 @@ void initRadio() {
 }
 
 void sendCue(int scene, int cue) {
-  Serial.print(COMMAND_DELIMITER_SCENE);
-  Serial.print(scene);
-  Serial.print(COMMAND_DELIMITER_CUE);
-  Serial.println(cue);
+  for (int repeats = 0; repeats <NUM_CUE_REPEATS; repeats++){
+    Serial.print(COMMAND_DELIMITER_SCENE);
+    Serial.print(scene);
+    Serial.print(COMMAND_DELIMITER_CUE);
+    Serial.println(cue);
+    delay(random(3)*100);
+  }
 }
 
-void sendBreath(int duration) {
-  // for now duration is ignored
+void sendBreath() {
   Serial.println(COMMAND_DELIMITER_BREATH);
+}
+
+void sendHeartbeat() {
+  Serial.println(COMMAND_DELIMITER_HEARTBEAT);
 }
 
 void sendParameter() {

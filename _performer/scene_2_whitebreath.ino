@@ -1,30 +1,18 @@
 void sceneWhiteBreath(int cue) {
 
-#ifdef SERIAL_DEBUG
-  Serial.println("White breath");
-#endif
+  #ifdef SERIAL_DEBUG
+    Serial.print("White breath");
+    if (thisIsANewCue) Serial.println("new cue");
+  #endif
 
-  // shared setup
-  int breath = getBreathPhase();
-  int brightness = 255 * triangleWave(getBreathPhase());
-  CHSV c = CHSV(0,0,brightness);
-  setLEDs(c);
-  heroLED(c);
-
-  // cue specific
-  switch (cue) {
-    case 1:
-
-      break;
-    case 2:
-    
-      break;
-    case 3:
-
-      break;
-    case 4:
-
-      break;
+  // disable the led strip
+  if (thisIsANewCue){
+     setLEDs(CRGB::Black);
   }
+  
+  // throb as breath is received
+  int brightness = MIN_BREATH_BRIGHTNESS + ((255-MIN_BREATH_BRIGHTNESS) * triangleWave(getBreathPhase()));
+  CHSV c = CHSV(0,0,brightness);
+  heroLED(c);
 
 }

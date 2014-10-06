@@ -6,6 +6,7 @@
 //
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
+#define USE_MAGNETOMETER;
 
 #include <FastLED.h>
 #include <Wire.h>
@@ -14,45 +15,49 @@
 
 #include "Magnetometer.h"
 #include "envelope.h"
+#include "interpolation.h"
 
 // Forward declarations: must precede inclusion of ShowPlot.h
 void sceneTest(int cue);
 void sceneWhiteFlashes(int cue);
 void sceneWhiteBreath(int cue);
+void sceneChase(int cue);
 void sceneColour(int cue);
 void sceneMagnetometer(int cue);
-void sceneFinale(int cue);
 
-#include "/path/to/shared/ArrayLength.h"
-#include "/path/to/shared/Scene.h"
-#include "/path/to/shared/SerialProtocol.h"
-#include "/path/to/shared/ShowPlot.h"
+#include "/path/to/DerwentPulse/shared/ArrayLength.h"
+#include "/path/to/DerwentPulse/shared/Scene.h"
+#include "/path/to/DerwentPulse/shared/SerialProtocol.h"
+#include "/path/to/DerwentPulse/shared/ShowPlot.h"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 // HARDWARE CONFIGURATION
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-const short NUM_LEDS = 32;
+const short NUM_LEDS = 48;
 const short DATA_PIN = 11;
 const short CLOCK_PIN = 13;
 const short RADIO_PIN = 8;
 
-const short HERO_LED_RED_PIN = 3;
+const short HERO_LED_RED_PIN = 6;
 const short HERO_LED_GREEN_PIN = 5;
-const short HERO_LED_BLUE_PIN = 6;
+const short HERO_LED_BLUE_PIN = 3;
+
+const short EMPTY_ANALOGUE_PIN = A0;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 // CONSTANT CONFIGURATION
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-// #define SERIAL_DEBUG; // uncomment for serial status reports
+// #define SERIAL_DEBUG; // uncomment for serial status reports - but nb this will break radio when there are multiple clients :(
 
 const long BAUD_RATE = 115200;
 
-const short STARTUP_DELAY = 2000;
-const short LOOP_DELAY = 70;
+const short STARTUP_DELAY = 1000;
+const short LOOP_DELAY = 20;
 
-const short BREATH_LENGTH_MS = 4000;
+const short BREATH_LENGTH_MS = 6000;
+const int MIN_BREATH_BRIGHTNESS = 20;
 
 /////////////////////////////////////////////////////////////////////////////////////////////////
 // STATE VARIABLES
@@ -63,10 +68,15 @@ Magnetometer compass = Magnetometer();
 String commandString = "";
 boolean commandStringComplete = false;
 
+boolean thisIsANewCue = false;
+
 CRGB leds[NUM_LEDS];
 
 boolean stateOfPanic = false; // once this flag is set, we're no longer in radio command mode
 unsigned long lastBreathMillis = 0;
+
+boolean offline = true;
+unsigned long lastHeartbeatMillis = 0;
 
 int currentScene;
 int currentCue;
@@ -77,12 +87,13 @@ int lastParameter;
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
 void setup() {
+  initHeroLED(); // do this first just to shut it off
   // a brief wait so board isn't locked up
   delay(STARTUP_DELAY);
+  randomSeed(analogRead(EMPTY_ANALOGUE_PIN));
   // init peripherals
   initLEDTape();
   initSerial();
-  initHeroLED();
   compass.begin();
   // init state
   breath();
@@ -206,6 +217,9 @@ void parseCommand(String str) {
     case COMMAND_DELIMITER_BREATH:
       breath();
       break;
+    case COMMAND_DELIMITER_HEARTBEAT:
+      heartbeat();
+      break;
     case COMMAND_DELIMITER_PANIC:
       panic();
       break;
@@ -239,8 +253,12 @@ void play(int scene, int cue) {
     invalidInput();
     return;
   }
-  currentScene = scene;
-  currentCue = cue;
+  if ((scene != currentScene) || (cue != currentCue)){
+    goOnline();
+    thisIsANewCue = true;
+    currentScene = scene;
+    currentCue = cue;
+  }
 }
 
 void invalidInput() {
@@ -264,9 +282,27 @@ float lastNormalisedParameter() {
 void loopScene() {
   if (!stateOfPanic) {
     SHOW_PLOT[currentScene].callBack(currentCue);
+    thisIsANewCue = false;
   } else {
     scenePanicLoop();
   }
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////
+// HEARTBEAT
+////////////////////////////////////////////////////////////////////////////////////////////////
+
+void heartbeat() {
+  lastHeartbeatMillis = millis();
+}
+
+void goOffline(){
+  offline = true;
+}
+
+void goOnline(){
+  offline = false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -299,5 +335,9 @@ void setLEDs(CRGB c) {
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = c;
   }
+  showLEDs();
+}
+
+void showLEDs() {
   FastLED.show();
 }
